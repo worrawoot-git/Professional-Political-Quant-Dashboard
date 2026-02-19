@@ -127,7 +127,21 @@ if selected_countries:
     latest_forecast = df_forecast[df_forecast['Year'] == year_range[1] + 3]
     
     st.write(f"ตารางคาดการณ์คะแนนในปี {year_range[1] + 3}:")
-    st.dataframe(latest_forecast.style.background_gradient(cmap='Blues'), use_container_width=True)
+    
+    # 4. ตารางสรุปเชิงพยากรณ์
+    st.divider()
+    st.header("📋 Forecast Summary Table")
+    
+    # ดึงเฉพาะปีสุดท้ายที่พยากรณ์ (3 ปีข้างหน้า)
+    latest_forecast = df_forecast[df_forecast['Year'] == year_range[1] + 3].copy()
+    
+    st.write(f"ตารางคาดการณ์คะแนนในปี {year_range[1] + 3}:")
+    
+    # แก้ไขจุดที่ Error: ระบุเฉพาะคอลัมน์ 'Political Score' ให้ทำ Gradient
+    st.dataframe(
+        latest_forecast.style.background_gradient(cmap='Blues', subset=['Political Score']), 
+        use_container_width=True
+    )
 
     # Export
     csv = df_total.to_csv(index=False).encode('utf-8')
