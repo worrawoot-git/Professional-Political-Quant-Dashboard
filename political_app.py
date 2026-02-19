@@ -6,9 +6,9 @@ import numpy as np
 from textblob import TextBlob
 import feedparser
 import ssl
-from sklearn.linear_model import LinearRegression # เพิ่มสำหรับการพยากรณ์
+from sklearn.linear_model import LinearRegression
 
-# --- การตั้งค่าความปลอดภัยสำหรับ News Feed ---
+# --- ความปลอดภัยสำหรับ RSS Feed ---
 if hasattr(ssl, '_create_unverified_context'):
     ssl._create_default_https_context = ssl._create_unverified_context
 
@@ -19,141 +19,119 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- ฟังก์ชันการคำนวณ Sentiment ---
+# --- ฟังก์ชันหลัก (Backend) ---
 @st.cache_data(ttl=3600)
 def get_political_sentiment(country_name):
     search_query = f"{country_name}+politics+government"
     url = f"https://news.google.com/rss/search?q={search_query}&hl=en-US&gl=US&ceid=US:en"
     feed = feedparser.parse(url)
-    titles = [entry.title for entry in feed.entries[:8]]
+    titles = [entry.title.split(" - ")[0] for entry in feed.entries[:8]]
     sentiments = []
     for title in titles:
-        analysis = TextBlob(title.split(" - ")[0])
+        analysis = TextBlob(title)
         score = (analysis.sentiment.polarity + 1) * 50
         sentiments.append(score)
     avg_score = sum(sentiments) / len(sentiments) if sentiments else 50
     return avg_score, titles
 
-# --- UI: Header ---
+# --- UI Header ---
 st.title("🔮 Global Political Quant & Future Forecast")
-st.markdown("วิเคราะห์แนวโน้มการเมืองในอดีต ปัจจุบัน และ **พยากรณ์ล่วงหน้า 3 ปี**")
+st.markdown("วิเคราะห์แนวโน้มการเมือง อดีต ปัจจุบัน และ **พยากรณ์ล่วงหน้า 3 ปี**")
 
 # --- Sidebar ---
 st.sidebar.header("⚙️ การตั้งค่า")
 selected_countries = st.sidebar.multiselect(
     "เลือกประเทศ", 
-    ["THA", "VNM", "IDN", "SGP", "MYS", "USA", "CHN", "JPN", "IND"],
+    ["THA", "VNM", "IDN", "SGP", "MYS", "USA", "CHN", "JPN", "IND", "KOR", "GBR"],
     default=["THA", "VNM"]
 )
 
-year_range = st.sidebar.slider("ช่วงปีที่ใช้เป็นฐานข้อมูล", 2010, 2024, (2015, 2023))
+year_range = st.sidebar.slider("ช่วงปีฐานข้อมูล", 2010, 2024, (2015, 2023))
 st.sidebar.divider()
-st.sidebar.subheader("⚖️ Weights")
-w_di = st.sidebar.slider("Democracy Index (%)", 0, 100, 30) / 100
-w_cpi = st.sidebar.slider("Corruption (%)", 0, 100, 40) / 100
-w_fsi = st.sidebar.slider("Stability (%)", 0, 100, 30) / 100
+st.sidebar.subheader("⚖️ การถ่วงน้ำหนัก (%)")
+w_di = st.sidebar.slider("ประชาธิปไตย", 0, 100, 30) / 100
+w_cpi = st.sidebar.slider("คอร์รัปชัน", 0, 100, 40) / 100
+w_fsi = st.sidebar.slider("เสถียรภาพ", 0, 100, 30) / 100
 
-# --- การประมวลผลหลัก ---
+# --- การประมวลผล ---
 if selected_countries:
-    # 1. การสร้างข้อมูลในอดีต (Historical Data)
+    # 1. ข้อมูลในอดีต (Actual Data)
     all_data = []
     for c in selected_countries:
-        # สร้างแนวโน้มแบบสุ่มที่ดูสมจริง (ในงานจริงจะดึงจาก WB API)
-        trend_factor = np.random.uniform(-1.5, 1.5) 
-        base_score = np.random.uniform(40, 70)
-        
+        # จำลองข้อมูลตามแนวโน้มสถิติ
+        trend = np.random.uniform(-1.0, 1.0) 
+        base = np.random.uniform(45, 65)
         for y in range(year_range[0], year_range[1] + 1):
-            noise = np.random.normal(0, 2)
-            score = base_score + (trend_factor * (y - year_range[0])) + noise
-            all_data.append({"Country": c, "Year": y, "Political Score": round(score, 2), "Type": "Actual"})
+            score = base + (trend * (y - year_range[0])) + np.random.normal(0, 1.5)
+            all_data.append({"Country": c, "Year": y, "Political Score": round(float(score), 2), "Type": "Actual"})
 
     df = pd.DataFrame(all_data)
 
-    # 2. ฟีเจอร์พยากรณ์ (Forecasting Feature)
-    st.header("📈 Historical Trend & 3-Year Forecast")
-    
-    forecast_results = []
+    # 2. การพยากรณ์ (Forecasting)
+    st.header("📈 Trend & Forecast (Next 3 Years)")
+    forecast_list = []
     for c in selected_countries:
-        country_df = df[df['Country'] == c]
+        c_df = df[df['Country'] == c]
+        X = c_df['Year'].values.reshape(-1, 1)
+        y = c_df['Political Score'].values
         
-        # เตรียมข้อมูลสำหรับ Linear Regression
-        X = country_df['Year'].values.reshape(-1, 1)
-        y = country_df['Political Score'].values
+        model = LinearRegression().fit(X, y)
         
-        model = LinearRegression()
-        model.fit(X, y)
+        last_y = year_range[1]
+        future = np.array([last_y+1, last_y+2, last_y+3]).reshape(-1, 1)
+        preds = model.predict(future)
         
-        # พยากรณ์ไปอีก 3 ปีข้างหน้า
-        last_year = year_range[1]
-        future_years = np.array([last_year + 1, last_year + 2, last_year + 3]).reshape(-1, 1)
-        predictions = model.predict(future_years)
-        
-        for idx, fy in enumerate(future_years.flatten()):
-            forecast_results.append({
+        for idx, fy in enumerate(future.flatten()):
+            forecast_list.append({
                 "Country": c, 
                 "Year": int(fy), 
-                "Political Score": round(predictions[idx], 2),
+                "Political Score": round(float(preds[idx]), 2),
                 "Type": "Forecast"
             })
             
-    df_forecast = pd.DataFrame(forecast_results)
-    df_total = pd.concat([df, df_forecast])
+    df_forecast = pd.DataFrame(forecast_list)
+    df_total = pd.concat([df, df_forecast]).reset_index(drop=True)
 
-    # กราฟแสดงผล (เส้นทึบ = จริง, เส้นประ = พยากรณ์)
+    # กราฟ
     fig = px.line(df_total, x="Year", y="Political Score", color="Country", 
-                  line_dash="Type", markers=True,
-                  title="การพยากรณ์แนวโน้มสุขภาพทางการเมือง (Actual vs Forecast)")
+                  line_dash="Type", markers=True, template="plotly_white")
     st.plotly_chart(fig, use_container_width=True)
 
-    # 3. Sentiment Analysis (Real-time)
+    # 3. Sentiment Analysis
     st.divider()
-    st.header("🗞️ Real-time Sentiment Context")
+    st.header("🗞️ Current Sentiment")
     cols = st.columns(len(selected_countries))
-    
-    sent_list = []
     for idx, c_code in enumerate(selected_countries):
         s_score, news = get_political_sentiment(c_code)
-        sent_list.append({"Country": c_code, "Sentiment": s_score})
         with cols[idx]:
-            st.metric(f"Current Sentiment: {c_code}", f"{s_score:.1f}")
+            st.metric(f"Sentiment: {c_code}", f"{s_score:.1f}")
             for n in news[:2]:
-                st.caption(f"📰 {n}")
+                st.caption(f"📍 {n}")
 
-    # 4. ตารางสรุปเชิงพยากรณ์
+    # 4. ตารางพยากรณ์ (Fixed Table Error)
     st.divider()
-    st.header("📋 Forecast Summary Table")
+    st.header("📋 Forecast Summary (Target Year)")
     
-    # ดึงเฉพาะปีสุดท้ายที่พยากรณ์ (3 ปีข้างหน้า)
-    latest_forecast = df_forecast[df_forecast['Year'] == year_range[1] + 3]
+    target_year = year_range[1] + 3
+    # กรองเฉพาะปีเป้าหมายและคัดเลือกคอลัมน์
+    summary_table = df_forecast[df_forecast['Year'] == target_year][['Country', 'Year', 'Political Score']].copy()
+    summary_table = summary_table.sort_values('Political Score', ascending=False).reset_index(drop=True)
     
-    st.write(f"ตารางคาดการณ์คะแนนในปี {year_range[1] + 3}:")
+    st.write(f"คะแนนคาดการณ์ ณ สิ้นปี {target_year}:")
     
-    # 4. ตารางสรุปเชิงพยากรณ์
-    st.divider()
-    st.header("📋 Forecast Summary Table")
-    
-    # ดึงเฉพาะปีสุดท้ายที่พยากรณ์ (3 ปีข้างหน้า)
-    latest_forecast = df_forecast[df_forecast['Year'] == year_range[1] + 3].copy()
-    
-    st.write(f"ตารางคาดการณ์คะแนนในปี {year_range[1] + 3}:")
-    
-    # แก้ไขจุดที่ Error: ระบุเฉพาะคอลัมน์ 'Political Score' ให้ทำ Gradient
+    # แสดงตารางแบบระบุด้านการไล่สีให้ชัดเจน
     st.dataframe(
-        latest_forecast.style.background_gradient(cmap='Blues', subset=['Political Score']), 
+        summary_table.style.background_gradient(cmap='Greens', subset=['Political Score'])
+                           .format({'Political Score': '{:.2f}'}),
         use_container_width=True
     )
 
     # Export
     csv = df_total.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 Download All Data (Historical + Forecast)", csv, "political_forecast.csv", "text/csv")
+    st.download_button("📥 Download Dataset", csv, "political_data.csv", "text/csv")
 
 else:
-    st.info("👈 กรุณาเลือกประเทศเพื่อดูการพยากรณ์")
+    st.info("👈 กรุณาเลือกประเทศจากแถบด้านข้าง")
 
-# เพิ่มคำอธิบายอัลกอริทึม
-with st.expander("📝 อธิบายหลักการพยากรณ์ (Methodology)"):
-    st.write("""
-    - **Historical Data:** ใช้ข้อมูลจากช่วงปีที่เลือกมาเป็นฐานในการหาความสัมพันธ์
-    - **Linear Regression:** ใช้อัลกอริทึมวิเคราะห์เส้นแนวโน้ม (Trendline) เพื่อคำนวณทิศทางว่าในอนาคตคะแนนควรจะเป็นเท่าใด
-    - **Forecast Line:** เส้นประในกราฟแสดงถึงการคาดการณ์เชิงสถิติ ซึ่งอาจเปลี่ยนแปลงได้ตามเหตุการณ์ปัจจุบัน (Sentiment)
-    """)
+st.sidebar.markdown("---")
+st.sidebar.caption("Fix: Optimized for Streamlit Cloud v3.13+")
