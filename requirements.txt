@@ -1,0 +1,7 @@
+streamlit
+pandas
+plotly
+wbgapi
+textblob
+feedparser
+numpy
